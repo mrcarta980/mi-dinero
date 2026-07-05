@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#151c22" />
+    <meta name="description" content="Control compartido de ingresos, salidas, obligaciones y saldos por corte." />
+    <title>Mi Dinero</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icon.svg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-icon" aria-hidden="true">$</div>
+          <div>
+            <strong>Mi Dinero</strong>
+            <span>Control por cortes</span>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <a href="#panel">Panel</a>
+          <a href="#registrar">Registrar</a>
+          <a href="#obligaciones">Obligaciones</a>
+          <a href="#historial">Historial</a>
+          <a href="#configuracion">Config.</a>
+        </nav>
+
+        <button class="ghost danger" id="resetData" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 6h18M8 6V4h8v2m-9 4 1 10h8l1-10" />
+          </svg>
+          Borrar datos
+        </button>
+      </header>
+
+      <main class="content">
+        <header class="topbar" id="panel">
+          <div>
+            <p class="overline">Panel financiero</p>
+            <h1>Gestiona pagos parciales y saldos pendientes por corte.</h1>
+          </div>
+          <div class="filters">
+            <label>
+              Mes
+              <input id="monthFilter" type="month" />
+            </label>
+            <label>
+              Corte
+              <select id="fortnightFilter">
+                <option value="all">Todo el mes</option>
+                <option value="Q1">Q1 - 30 al 5</option>
+                <option value="Q2">Q2 - 15 al 20</option>
+                <option value="Otro">Fuera de corte</option>
+              </select>
+            </label>
+          </div>
+        </header>
+
+        <section class="metrics" aria-label="Resumen">
+          <article class="metric income">
+            <span>Ingresos</span>
+            <strong id="incomeTotal">$0</strong>
+          </article>
+          <article class="metric expense">
+            <span>Salidas registradas</span>
+            <strong id="expenseTotal">$0</strong>
+          </article>
+          <article class="metric balance">
+            <span>Disponible real</span>
+            <strong id="realBalance">$0</strong>
+          </article>
+        </section>
+
+        <section class="dashboard" aria-label="Dashboard de resumen">
+          <article class="panel dashboard-main">
+            <div class="panel-title">
+              <div>
+                <p class="overline">Dashboard</p>
+                <h2>Resumen del mes</h2>
+              </div>
+              <span class="status-pill" id="dashboardStatus">En revision</span>
+            </div>
+            <div class="dashboard-grid">
+              <div class="dash-block">
+                <span>Disponible con arrastre</span>
+                <strong id="freeMoney">$0</strong>
+              </div>
+              <div class="dash-block">
+                <span>Obligaciones completas</span>
+                <strong id="completedPayments">0 / 0</strong>
+              </div>
+              <div class="dash-block">
+                <span>Deudas activas</span>
+                <strong id="activeDebtTotal">$0</strong>
+              </div>
+              <div class="dash-block">
+                <span>Mayor gasto</span>
+                <strong id="topExpense">Sin datos</strong>
+              </div>
+            </div>
+            <div class="owner-summary" id="ownerDashboard"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-title compact">
+              <div>
+                <p class="overline">Cortes</p>
+                <h2>Entrada vs salida</h2>
+              </div>
+            </div>
+            <div class="fortnight-bars" id="fortnightDashboard"></div>
+          </article>
+        </section>
+
+        <section class="layout" id="registrar">
+          <section class="panel">
+            <div class="panel-title">
+              <div>
+                <p class="overline">Registro rápido</p>
+                <h2 id="movementFormTitle">Ingresos y salidas</h2>
+              </div>
+            </div>
+
+            <form id="movementForm" class="form">
+              <div class="segmented">
+                <label>
+                  <input type="radio" name="kind" value="Ingreso" checked />
+                  <span>Ingreso</span>
+                </label>
+                <label>
+                  <input type="radio" name="kind" value="Gasto" />
+                  <span>Salida</span>
+                </label>
+                <label>
+                  <input type="radio" name="kind" value="Transferencia" />
+                  <span>Transferencia</span>
+                </label>
+              </div>
+
+              <div class="grid two">
+                <label>
+                  Fecha
+                  <input name="date" type="date" required />
+                </label>
+                <label>
+                  Corte detectado
+                  <input name="periodLabel" type="text" value="Q1 - 30 al 5" readonly />
+                </label>
+              </div>
+
+              <label>
+                Descripcion
+                <input name="description" type="text" placeholder="Arriendo, salario, mercado" required />
+              </label>
+
+              <div class="grid two">
+                <label>
+                  Categoria
+                  <select name="category" id="movementCategory"></select>
+                </label>
+                <label>
+                  Pago asociado
+                  <select name="paymentId" id="paymentSelect"></select>
+                </label>
+              </div>
+
+              <div class="grid two">
+                <label>
+                  Valor
+                  <input name="amount" type="number" min="0" step="100" placeholder="0" required />
+                </label>
+                <label>
+                  Responsable
+                  <select name="owner" required>
+                    <option value="Pacha">Pacha</option>
+                    <option value="Aleja">Aleja</option>
+                  </select>
+                </label>
+              </div>
+
+              <label class="hidden" id="transferTargetField">
+                Recibe
+                <select name="targetOwner" id="targetOwner"></select>
+              </label>
+
+              <div class="grid one">
+                <label>
+                  Nota
+                  <input name="note" type="text" placeholder="Opcional" />
+                </label>
+              </div>
+
+              <div class="form-actions">
+                <button class="primary" id="movementSubmit" type="submit">
+                  <span aria-hidden="true">+</span>
+                  Guardar movimiento
+                </button>
+                <button class="quiet hidden" id="cancelMovementEdit" type="button">
+                  Cancelar edicion
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-title">
+              <div>
+                <p class="overline">Plan mensual</p>
+                <h2 id="paymentFormTitle">Crear obligacion</h2>
+              </div>
+            </div>
+
+            <form id="paymentForm" class="form">
+              <label>
+                Nombre
+                <input name="name" type="text" placeholder="Arriendo, servicios, tarjeta" required />
+              </label>
+
+              <div class="grid two">
+                <label>
+                  Tipo
+                  <select name="type" id="paymentType"></select>
+                </label>
+                <label>
+                  Categoria
+                  <select name="category" id="paymentCategory"></select>
+                </label>
+              </div>
+
+              <div class="grid two">
+                <label>
+                  Cuota / valor mensual
+                  <input name="monthlyAmount" type="number" min="0" step="100" required />
+                </label>
+                <label>
+                  Dia de pago
+                  <input name="dueDay" type="number" min="1" max="31" placeholder="30" required />
+                </label>
+              </div>
+
+              <label>
+                Saldo total deuda
+                <input name="debtTotal" type="number" min="0" step="100" placeholder="Solo si el tipo es Deuda" />
+              </label>
+
+              <div class="grid one">
+                <label>
+                  Prioridad
+                  <select name="priority">
+                    <option>Alta</option>
+                    <option selected>Media</option>
+                    <option>Baja</option>
+                  </select>
+                </label>
+              </div>
+
+              <label>
+                Nota
+                <input name="note" type="text" placeholder="Opcional" />
+              </label>
+
+              <div class="form-actions">
+                <button class="secondary" id="paymentSubmit" type="submit">
+                  <span aria-hidden="true">+</span>
+                  Guardar obligacion
+                </button>
+                <button class="quiet hidden" id="cancelPaymentEdit" type="button">
+                  Cancelar edicion
+                </button>
+              </div>
+            </form>
+          </section>
+        </section>
+
+        <section class="panel" id="obligaciones">
+          <div class="panel-title">
+            <div>
+              <p class="overline">Control del mes</p>
+              <h2>Obligaciones y avance</h2>
+            </div>
+          </div>
+          <div class="payment-grid" id="paymentCards"></div>
+        </section>
+
+        <section class="layout bottom">
+          <section class="panel" id="historial">
+            <div class="panel-title">
+              <div>
+                <p class="overline">Historial</p>
+                <h2>Movimientos del periodo</h2>
+              </div>
+            </div>
+            <div class="history-filters">
+              <label>
+                Detalle
+                <input id="historyDetailFilter" type="search" placeholder="Buscar..." />
+              </label>
+              <label>
+                Responsable
+                <select id="historyOwnerFilter">
+                  <option value="all">Todos</option>
+                  <option value="Pacha">Pacha</option>
+                  <option value="Aleja">Aleja</option>
+                  <option value="Sin asignar">Sin asignar</option>
+                </select>
+              </label>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Corte</th>
+                    <th>Tipo</th>
+                    <th>Responsable</th>
+                    <th>Detalle</th>
+                    <th>Valor</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="movementRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-title">
+              <div>
+                <p class="overline">Analisis</p>
+                <h2>En que se fue</h2>
+              </div>
+            </div>
+            <div id="categorySummary" class="summary-list"></div>
+          </section>
+        </section>
+
+        <section class="panel" id="configuracion">
+          <div class="panel-title">
+            <div>
+              <p class="overline">Configuracion</p>
+              <h2>Tipos y categorias</h2>
+            </div>
+          </div>
+
+          <div class="settings-grid">
+            <article class="settings-box">
+              <h3>Categorias</h3>
+              <form id="categoryForm" class="settings-form">
+                <input id="categoryName" type="text" placeholder="Nueva categoria" required />
+                <button class="secondary" type="submit">Agregar</button>
+              </form>
+              <div class="settings-list" id="categoryList"></div>
+            </article>
+
+            <article class="settings-box">
+              <h3>Tipos de obligacion</h3>
+              <form id="typeForm" class="settings-form">
+                <input id="typeName" type="text" placeholder="Nuevo tipo" required />
+                <button class="secondary" type="submit">Agregar</button>
+              </form>
+              <div class="settings-list" id="typeList"></div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <template id="emptyTemplate">
+      <tr>
+        <td colspan="7" class="empty">No hay datos para este periodo.</td>
+      </tr>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>

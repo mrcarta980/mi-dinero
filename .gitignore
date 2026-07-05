@@ -1,0 +1,11 @@
+node_modules/
+outputs/
+scripts/
+.agents/
+.codex/
+.vercel/
+
+AppsScript_Panel.gs
+*.log
+.DS_Store
+Thumbs.db
