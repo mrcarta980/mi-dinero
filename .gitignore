@@ -1,11 +1,14 @@
 node_modules/
 outputs/
 scripts/
+chrome-localstorage-profile2/
 .agents/
 .codex/
 .vercel/
 
 AppsScript_Panel.gs
+mi-dinero-respaldo-*.json
+mi-dinero-respaldo-local.json
 *.log
 .DS_Store
 Thumbs.db
