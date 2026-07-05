@@ -1,4 +1,6 @@
 const STORAGE_KEY = "mi-dinero-local-v2";
+const SUPABASE_URL = "https://agwiadtprxrorltvxcud.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFnd2lhZHRwcnhyb3JsdHZ4Y3VkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyNzY2MjIsImV4cCI6MjA5ODg1MjYyMn0.Fo5zHGwYa4WPypKTk3af0yQIzXEsQSQmAYJPCQn61jc";
 
 const defaultCategories = [
   "Ingresos",
@@ -26,13 +28,26 @@ const currency = new Intl.NumberFormat("es-CO", {
   maximumFractionDigits: 0,
 });
 
+const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const state = loadState();
+const sessionState = {
+  session: null,
+  householdId: "",
+  personName: "",
+  isRemote: false,
+};
 const editing = {
   movementId: null,
   paymentId: null,
 };
 
 const els = {
+  appShell: document.querySelector("#appShell"),
+  authGate: document.querySelector("#authGate"),
+  loginForm: document.querySelector("#loginForm"),
+  authError: document.querySelector("#authError"),
+  sessionLabel: document.querySelector("#sessionLabel"),
+  logoutButton: document.querySelector("#logoutButton"),
   monthFilter: document.querySelector("#monthFilter"),
   fortnightFilter: document.querySelector("#fortnightFilter"),
   movementForm: document.querySelector("#movementForm"),
@@ -77,15 +92,14 @@ const els = {
 boot();
 registerServiceWorker();
 
-function boot() {
+async function boot() {
   els.monthFilter.value = currentMonth();
   field(els.movementForm, "date").value = today();
   updateDetectedPeriod();
 
   updateSelects();
   bindEvents();
-  render();
-  renderSettings();
+  await initializeSession();
   requestAnimationFrame(resetHorizontalScroll);
 }
 
@@ -100,9 +114,94 @@ function registerServiceWorker() {
   });
 }
 
+async function initializeSession() {
+  if (!supabaseClient) {
+    showLogin("No se pudo cargar Supabase. Revisa la conexion.");
+    return;
+  }
+
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error || !data.session) {
+    showLogin();
+    return;
+  }
+
+  await startRemoteSession(data.session);
+}
+
+async function login(event) {
+  event.preventDefault();
+  setAuthError("");
+  if (!supabaseClient) {
+    showLogin("No se pudo cargar Supabase. Revisa la conexion.");
+    return;
+  }
+  const data = new FormData(event.currentTarget);
+  const email = String(data.get("email") || "").trim();
+  const password = String(data.get("password") || "");
+
+  const { data: authData, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) {
+    showLogin("No se pudo iniciar sesion. Revisa correo y contrasena.");
+    return;
+  }
+
+  await startRemoteSession(authData.session);
+}
+
+async function logout() {
+  if (!supabaseClient) return;
+  await supabaseClient.auth.signOut();
+  sessionState.session = null;
+  sessionState.householdId = "";
+  sessionState.personName = "";
+  sessionState.isRemote = false;
+  showLogin();
+}
+
+async function startRemoteSession(session) {
+  sessionState.session = session;
+  const { data: member, error } = await supabaseClient
+    .from("household_members")
+    .select("household_id, person_name")
+    .eq("user_id", session.user.id)
+    .maybeSingle();
+
+  if (error || !member) {
+    showLogin("Tu usuario existe, pero no esta asociado al hogar Mi Dinero.");
+    return;
+  }
+
+  sessionState.householdId = member.household_id;
+  sessionState.personName = member.person_name;
+  sessionState.isRemote = true;
+  await loadRemoteState();
+  showApp();
+}
+
+function showLogin(message = "") {
+  els.authGate.classList.remove("hidden");
+  els.appShell.classList.add("hidden");
+  setAuthError(message);
+}
+
+function showApp() {
+  els.authGate.classList.add("hidden");
+  els.appShell.classList.remove("hidden");
+  els.sessionLabel.textContent = sessionState.personName || "Conectado";
+  render();
+  renderSettings();
+}
+
+function setAuthError(message) {
+  els.authError.textContent = message;
+}
+
 function bindEvents() {
   window.addEventListener("resize", resetHorizontalScroll);
 
+  els.loginForm.addEventListener("submit", login);
+  els.logoutButton.addEventListener("click", logout);
   els.movementForm.addEventListener("submit", saveMovement);
   els.paymentForm.addEventListener("submit", savePayment);
   els.monthFilter.addEventListener("change", render);
@@ -122,7 +221,7 @@ function bindEvents() {
     radio.addEventListener("change", syncMovementMode);
   });
 
-  els.movementRows.addEventListener("click", (event) => {
+  els.movementRows.addEventListener("click", async (event) => {
     const editButton = event.target.closest("[data-edit-movement]");
     const deleteButton = event.target.closest("[data-delete-movement]");
 
@@ -134,12 +233,13 @@ function bindEvents() {
     if (deleteButton) {
       state.movements = state.movements.filter((item) => item.id !== deleteButton.dataset.deleteMovement);
       if (editing.movementId === deleteButton.dataset.deleteMovement) cancelMovementEdit();
+      await deleteRemoteMovement(deleteButton.dataset.deleteMovement);
       persist();
       render();
     }
   });
 
-  els.paymentCards.addEventListener("click", (event) => {
+  els.paymentCards.addEventListener("click", async (event) => {
     const editButton = event.target.closest("[data-edit-payment]");
     const deleteButton = event.target.closest("[data-delete-payment]");
 
@@ -154,6 +254,7 @@ function bindEvents() {
         item.paymentId === deleteButton.dataset.deletePayment ? { ...item, paymentId: "", paymentName: "" } : item
       ));
       if (editing.paymentId === deleteButton.dataset.deletePayment) cancelPaymentEdit();
+      await deleteRemotePayment(deleteButton.dataset.deletePayment);
       persist();
       render();
     }
@@ -162,10 +263,12 @@ function bindEvents() {
   els.cancelMovementEdit.addEventListener("click", cancelMovementEdit);
   els.cancelPaymentEdit.addEventListener("click", cancelPaymentEdit);
 
-  els.resetData.addEventListener("click", () => {
-    if (!confirm("Borrar todos los datos locales de esta app?")) return;
+  els.resetData.addEventListener("click", async () => {
+    const scope = sessionState.isRemote ? "compartidos en la nube" : "locales de esta app";
+    if (!confirm(`Borrar todos los datos ${scope}?`)) return;
     state.movements = [];
     state.payments = [];
+    await deleteRemoteHouseholdData();
     persist();
     render();
   });
@@ -181,7 +284,7 @@ function resetHorizontalScroll() {
   if (scrollingElement) scrollingElement.scrollLeft = 0;
 }
 
-function saveMovement(event) {
+async function saveMovement(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = new FormData(form);
@@ -216,8 +319,10 @@ function saveMovement(event) {
     state.movements = state.movements.map((item) => (
       item.id === editing.movementId ? { ...movementData, id: editing.movementId } : item
     ));
+    await upsertRemoteMovement({ ...movementData, id: editing.movementId });
   } else {
     state.movements.push(movementData);
+    await upsertRemoteMovement(movementData);
   }
 
   resetMovementForm();
@@ -225,7 +330,7 @@ function saveMovement(event) {
   render();
 }
 
-function savePayment(event) {
+async function savePayment(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = new FormData(form);
@@ -256,8 +361,10 @@ function savePayment(event) {
         ? { ...item, paymentName: paymentData.name || previous?.name || "" }
         : item
     ));
+    await upsertRemotePayment({ ...paymentData, id: editing.paymentId, createdAt: previous?.createdAt || paymentData.createdAt });
   } else {
     state.payments.push(paymentData);
+    await upsertRemotePayment(paymentData);
   }
 
   resetPaymentForm();
@@ -592,25 +699,25 @@ function renderSettingsList(container, items, kind) {
   `).join("");
 }
 
-function addCategory(event) {
+async function addCategory(event) {
   event.preventDefault();
   const name = cleanName(els.categoryName.value);
   if (!name) return;
   state.settings.categories = addUnique(getCategories(), name);
   els.categoryName.value = "";
-  afterSettingsChange();
+  await afterSettingsChange();
 }
 
-function addPaymentType(event) {
+async function addPaymentType(event) {
   event.preventDefault();
   const name = cleanName(els.typeName.value);
   if (!name) return;
   state.settings.paymentTypes = addUnique(getPaymentTypes(), name);
   els.typeName.value = "";
-  afterSettingsChange();
+  await afterSettingsChange();
 }
 
-function handleSettingsClick(event, expectedKind) {
+async function handleSettingsClick(event, expectedKind) {
   const editButton = event.target.closest("[data-edit-setting]");
   const deleteButton = event.target.closest("[data-delete-setting]");
   const button = editButton || deleteButton;
@@ -618,13 +725,13 @@ function handleSettingsClick(event, expectedKind) {
 
   const current = button.dataset.editSetting || button.dataset.deleteSetting;
   if (editButton) {
-    editSetting(expectedKind, current);
+    await editSetting(expectedKind, current);
     return;
   }
-  deleteSetting(expectedKind, current);
+  await deleteSetting(expectedKind, current);
 }
 
-function editSetting(kind, current) {
+async function editSetting(kind, current) {
   if (kind === "category" && current === "Ingresos") {
     alert("Ingresos es una categoria base para registrar entradas.");
     return;
@@ -644,14 +751,16 @@ function editSetting(kind, current) {
     state.movements = state.movements.map((movement) => (
       movement.category === current && movement.kind !== "Transferencia" ? { ...movement, category: next } : movement
     ));
+    await renameRemoteCategory(current, next);
   } else {
     state.settings.paymentTypes = updated;
     state.payments = state.payments.map((payment) => payment.type === current ? { ...payment, type: next } : payment);
+    await renameRemotePaymentType(current, next);
   }
-  afterSettingsChange();
+  await afterSettingsChange();
 }
 
-function deleteSetting(kind, current) {
+async function deleteSetting(kind, current) {
   const list = kind === "category" ? getCategories() : getPaymentTypes();
   if (kind === "category" && current === "Ingresos") {
     alert("Ingresos es una categoria base para registrar entradas.");
@@ -668,10 +777,11 @@ function deleteSetting(kind, current) {
   } else {
     state.settings.paymentTypes = list.filter((item) => item !== current);
   }
-  afterSettingsChange();
+  await afterSettingsChange();
 }
 
-function afterSettingsChange() {
+async function afterSettingsChange() {
+  await saveRemoteSettings();
   persist();
   updateSelects();
   renderSettings();
@@ -823,6 +933,183 @@ function summaryRow(label, amount, caption) {
       <b>${currency.format(amount)}</b>
     </div>
   `;
+}
+
+async function loadRemoteState() {
+  const householdId = sessionState.householdId;
+  const [movementsResult, paymentsResult, settingsResult] = await Promise.all([
+    supabaseClient.from("movements").select("*").eq("household_id", householdId).order("date", { ascending: false }),
+    supabaseClient.from("payments").select("*").eq("household_id", householdId).order("created_at", { ascending: true }),
+    supabaseClient.from("app_settings").select("*").eq("household_id", householdId).maybeSingle(),
+  ]);
+
+  if (movementsResult.error || paymentsResult.error || settingsResult.error) {
+    showLogin("No se pudieron cargar los datos compartidos.");
+    return;
+  }
+
+  state.movements = normalizeMovements((movementsResult.data || []).map(fromDbMovement));
+  state.payments = normalizePayments((paymentsResult.data || []).map(fromDbPayment));
+  state.settings = normalizeSettings(fromDbSettings(settingsResult.data));
+  persist();
+}
+
+async function upsertRemoteMovement(movement) {
+  if (!sessionState.isRemote) return;
+  const { error } = await supabaseClient
+    .from("movements")
+    .upsert(toDbMovement(movement), { onConflict: "id" });
+  if (error) alert("No se pudo guardar el movimiento en Supabase.");
+}
+
+async function upsertRemotePayment(payment) {
+  if (!sessionState.isRemote) return;
+  const { error } = await supabaseClient
+    .from("payments")
+    .upsert(toDbPayment(payment), { onConflict: "id" });
+  if (error) alert("No se pudo guardar la obligacion en Supabase.");
+}
+
+async function saveRemoteSettings() {
+  if (!sessionState.isRemote) return;
+  const { error } = await supabaseClient
+    .from("app_settings")
+    .upsert({
+      household_id: sessionState.householdId,
+      categories: getCategories(),
+      payment_types: getPaymentTypes(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "household_id" });
+  if (error) alert("No se pudo guardar la configuracion en Supabase.");
+}
+
+async function deleteRemoteMovement(id) {
+  if (!sessionState.isRemote) return;
+  const { error } = await supabaseClient
+    .from("movements")
+    .delete()
+    .eq("id", id)
+    .eq("household_id", sessionState.householdId);
+  if (error) alert("No se pudo eliminar el movimiento en Supabase.");
+}
+
+async function deleteRemotePayment(id) {
+  if (!sessionState.isRemote) return;
+  const householdId = sessionState.householdId;
+  const [deleteResult, updateResult] = await Promise.all([
+    supabaseClient.from("payments").delete().eq("id", id).eq("household_id", householdId),
+    supabaseClient.from("movements").update({ payment_id: null, payment_name: null }).eq("payment_id", id).eq("household_id", householdId),
+  ]);
+  if (deleteResult.error || updateResult.error) alert("No se pudo eliminar la obligacion en Supabase.");
+}
+
+async function deleteRemoteHouseholdData() {
+  if (!sessionState.isRemote) return;
+  const householdId = sessionState.householdId;
+  const [movementsResult, paymentsResult] = await Promise.all([
+    supabaseClient.from("movements").delete().eq("household_id", householdId),
+    supabaseClient.from("payments").delete().eq("household_id", householdId),
+  ]);
+  if (movementsResult.error || paymentsResult.error) alert("No se pudieron borrar todos los datos en Supabase.");
+}
+
+async function renameRemoteCategory(current, next) {
+  if (!sessionState.isRemote) return;
+  const householdId = sessionState.householdId;
+  const [paymentsResult, movementsResult] = await Promise.all([
+    supabaseClient.from("payments").update({ category: next }).eq("category", current).eq("household_id", householdId),
+    supabaseClient.from("movements").update({ category: next }).eq("category", current).eq("household_id", householdId),
+  ]);
+  if (paymentsResult.error || movementsResult.error) alert("No se pudieron actualizar los registros de esa categoria en Supabase.");
+}
+
+async function renameRemotePaymentType(current, next) {
+  if (!sessionState.isRemote) return;
+  const { error } = await supabaseClient
+    .from("payments")
+    .update({ type: next })
+    .eq("type", current)
+    .eq("household_id", sessionState.householdId);
+  if (error) alert("No se pudieron actualizar las obligaciones de ese tipo en Supabase.");
+}
+
+function toDbMovement(movement) {
+  return {
+    id: movement.id,
+    household_id: sessionState.householdId,
+    date: movement.date,
+    month: movement.month,
+    fortnight: movement.fortnight,
+    kind: movement.kind,
+    description: movement.description,
+    category: movement.category || null,
+    amount: Number(movement.amount || 0),
+    owner: movement.owner,
+    target_owner: movement.targetOwner || null,
+    note: movement.note || null,
+    payment_id: movement.paymentId || null,
+    payment_name: movement.paymentName || null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function fromDbMovement(row) {
+  return {
+    id: row.id,
+    date: row.date,
+    month: row.month,
+    fortnight: row.fortnight,
+    kind: row.kind,
+    description: row.description,
+    category: row.category || "",
+    amount: Number(row.amount || 0),
+    owner: row.owner,
+    targetOwner: row.target_owner || "",
+    note: row.note || "",
+    paymentId: row.payment_id || "",
+    paymentName: row.payment_name || "",
+  };
+}
+
+function toDbPayment(payment) {
+  return {
+    id: payment.id,
+    household_id: sessionState.householdId,
+    name: payment.name,
+    type: payment.type,
+    category: payment.category || null,
+    monthly_amount: Number(payment.monthlyAmount || 0),
+    debt_total: Number(payment.debtTotal || 0),
+    due_day: Number(payment.dueDay || 30),
+    priority: payment.priority || "Media",
+    note: payment.note || null,
+    active: payment.active !== false,
+    created_at: payment.createdAt || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function fromDbPayment(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    category: row.category || "",
+    monthlyAmount: Number(row.monthly_amount || 0),
+    debtTotal: Number(row.debt_total || 0),
+    dueDay: Number(row.due_day || 30),
+    priority: row.priority || "Media",
+    note: row.note || "",
+    active: row.active !== false,
+    createdAt: row.created_at || new Date().toISOString(),
+  };
+}
+
+function fromDbSettings(row) {
+  return {
+    categories: row?.categories || defaultCategories,
+    paymentTypes: row?.payment_types || defaultPaymentTypes,
+  };
 }
 
 function loadState() {

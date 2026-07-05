@@ -12,7 +12,29 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app">
+    <section class="auth-gate" id="authGate">
+      <form class="auth-card" id="loginForm">
+        <div class="brand auth-brand">
+          <div class="brand-icon" aria-hidden="true">$</div>
+          <div>
+            <strong>Mi Dinero</strong>
+            <span>Ingreso seguro</span>
+          </div>
+        </div>
+        <label>
+          Correo
+          <input name="email" type="email" autocomplete="email" required />
+        </label>
+        <label>
+          Contrasena
+          <input name="password" type="password" autocomplete="current-password" required />
+        </label>
+        <button class="primary" type="submit">Entrar</button>
+        <p class="auth-error" id="authError"></p>
+      </form>
+    </section>
+
+    <div class="app hidden" id="appShell">
       <header class="app-header">
         <div class="brand">
           <div class="brand-icon" aria-hidden="true">$</div>
@@ -30,12 +52,16 @@
           <a href="#configuracion">Config.</a>
         </nav>
 
-        <button class="ghost danger" id="resetData" type="button">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M3 6h18M8 6V4h8v2m-9 4 1 10h8l1-10" />
-          </svg>
-          Borrar datos
-        </button>
+        <div class="header-actions">
+          <span class="session-pill" id="sessionLabel">Sin sesion</span>
+          <button class="ghost" id="logoutButton" type="button">Salir</button>
+          <button class="ghost danger" id="resetData" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 6h18M8 6V4h8v2m-9 4 1 10h8l1-10" />
+            </svg>
+            Borrar datos
+          </button>
+        </div>
       </header>
 
       <main class="content">
@@ -376,6 +402,7 @@
       </tr>
     </template>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="app.js"></script>
   </body>
 </html>

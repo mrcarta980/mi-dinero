@@ -65,6 +65,38 @@ svg {
   overflow-x: hidden;
 }
 
+.auth-gate {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.auth-card {
+  display: grid;
+  width: min(100%, 420px);
+  gap: 14px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.auth-brand {
+  min-width: 0;
+  margin-bottom: 4px;
+}
+
+.auth-error {
+  min-height: 20px;
+  margin: 0;
+  color: var(--red);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
 .offline-page {
   display: grid;
   min-height: 100vh;
@@ -98,6 +130,26 @@ svg {
   max-width: 100%;
   background: var(--header);
   color: #eef4f6;
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.session-pill {
+  display: inline-grid;
+  min-height: 34px;
+  place-items: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #24313a;
+  color: #dce6eb;
+  font-size: 0.78rem;
+  font-weight: 850;
 }
 
 .brand {
@@ -821,6 +873,10 @@ th {
 @media (max-width: 1050px) {
   .app-header {
     grid-template-columns: 1fr;
+  }
+
+  .header-actions {
+    justify-content: flex-start;
   }
 
   .content {
