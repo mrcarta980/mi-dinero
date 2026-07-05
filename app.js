@@ -47,6 +47,7 @@ const els = {
   loginForm: document.querySelector("#loginForm"),
   authError: document.querySelector("#authError"),
   sessionLabel: document.querySelector("#sessionLabel"),
+  syncStatus: document.querySelector("#syncStatus"),
   logoutButton: document.querySelector("#logoutButton"),
   monthFilter: document.querySelector("#monthFilter"),
   fortnightFilter: document.querySelector("#fortnightFilter"),
@@ -87,6 +88,8 @@ const els = {
   categorySummary: document.querySelector("#categorySummary"),
   emptyTemplate: document.querySelector("#emptyTemplate"),
   resetData: document.querySelector("#resetData"),
+  exportData: document.querySelector("#exportData"),
+  importData: document.querySelector("#importData"),
 };
 
 boot();
@@ -210,6 +213,8 @@ function bindEvents() {
   els.historyOwnerFilter.addEventListener("change", render);
   els.categoryForm.addEventListener("submit", addCategory);
   els.typeForm.addEventListener("submit", addPaymentType);
+  els.exportData.addEventListener("click", exportBackup);
+  els.importData.addEventListener("change", importBackup);
 
   field(els.movementForm, "date").addEventListener("change", () => {
     updateDetectedPeriod();
@@ -936,6 +941,8 @@ function summaryRow(label, amount, caption) {
 }
 
 async function loadRemoteState() {
+  setSyncStatus("Sincronizando...");
+  const localBackup = getStoredLocalState();
   const householdId = sessionState.householdId;
   const [movementsResult, paymentsResult, settingsResult] = await Promise.all([
     supabaseClient.from("movements").select("*").eq("household_id", householdId).order("date", { ascending: false }),
@@ -944,34 +951,62 @@ async function loadRemoteState() {
   ]);
 
   if (movementsResult.error || paymentsResult.error || settingsResult.error) {
+    setSyncStatus("Error de sincronizacion", "bad");
     showLogin("No se pudieron cargar los datos compartidos.");
     return;
   }
 
-  state.movements = normalizeMovements((movementsResult.data || []).map(fromDbMovement));
-  state.payments = normalizePayments((paymentsResult.data || []).map(fromDbPayment));
-  state.settings = normalizeSettings(fromDbSettings(settingsResult.data));
+  const remoteMovements = normalizeMovements((movementsResult.data || []).map(fromDbMovement));
+  const remotePayments = normalizePayments((paymentsResult.data || []).map(fromDbPayment));
+  const shouldMigrateLocal = remoteMovements.length === 0 &&
+    remotePayments.length === 0 &&
+    hasUsefulLocalData(localBackup);
+
+  if (shouldMigrateLocal && confirm("Encontramos datos guardados en este navegador. Quieres subirlos a Supabase para no perderlos?")) {
+    state.movements = normalizeMovements(localBackup.movements || []);
+    state.payments = normalizePayments(localBackup.payments || []);
+    state.settings = normalizeSettings(localBackup.settings);
+    await uploadCurrentStateToRemote();
+  } else {
+    state.movements = remoteMovements;
+    state.payments = remotePayments;
+    state.settings = normalizeSettings(fromDbSettings(settingsResult.data));
+  }
   persist();
+  setSyncStatus("Sincronizado", "ok");
 }
 
 async function upsertRemoteMovement(movement) {
   if (!sessionState.isRemote) return;
+  setSyncStatus("Guardando...");
   const { error } = await supabaseClient
     .from("movements")
     .upsert(toDbMovement(movement), { onConflict: "id" });
-  if (error) alert("No se pudo guardar el movimiento en Supabase.");
+  if (error) {
+    setSyncStatus("Error al guardar", "bad");
+    alert("No se pudo guardar el movimiento en Supabase.");
+    return;
+  }
+  setSyncStatus("Sincronizado", "ok");
 }
 
 async function upsertRemotePayment(payment) {
   if (!sessionState.isRemote) return;
+  setSyncStatus("Guardando...");
   const { error } = await supabaseClient
     .from("payments")
     .upsert(toDbPayment(payment), { onConflict: "id" });
-  if (error) alert("No se pudo guardar la obligacion en Supabase.");
+  if (error) {
+    setSyncStatus("Error al guardar", "bad");
+    alert("No se pudo guardar la obligacion en Supabase.");
+    return;
+  }
+  setSyncStatus("Sincronizado", "ok");
 }
 
 async function saveRemoteSettings() {
   if (!sessionState.isRemote) return;
+  setSyncStatus("Guardando...");
   const { error } = await supabaseClient
     .from("app_settings")
     .upsert({
@@ -980,7 +1015,12 @@ async function saveRemoteSettings() {
       payment_types: getPaymentTypes(),
       updated_at: new Date().toISOString(),
     }, { onConflict: "household_id" });
-  if (error) alert("No se pudo guardar la configuracion en Supabase.");
+  if (error) {
+    setSyncStatus("Error al guardar", "bad");
+    alert("No se pudo guardar la configuracion en Supabase.");
+    return;
+  }
+  setSyncStatus("Sincronizado", "ok");
 }
 
 async function deleteRemoteMovement(id) {
@@ -1005,12 +1045,73 @@ async function deleteRemotePayment(id) {
 
 async function deleteRemoteHouseholdData() {
   if (!sessionState.isRemote) return;
+  setSyncStatus("Borrando...");
   const householdId = sessionState.householdId;
   const [movementsResult, paymentsResult] = await Promise.all([
     supabaseClient.from("movements").delete().eq("household_id", householdId),
     supabaseClient.from("payments").delete().eq("household_id", householdId),
   ]);
-  if (movementsResult.error || paymentsResult.error) alert("No se pudieron borrar todos los datos en Supabase.");
+  if (movementsResult.error || paymentsResult.error) {
+    setSyncStatus("Error al borrar", "bad");
+    alert("No se pudieron borrar todos los datos en Supabase.");
+    return;
+  }
+  setSyncStatus("Sincronizado", "ok");
+}
+
+async function uploadCurrentStateToRemote() {
+  if (!sessionState.isRemote) return;
+  setSyncStatus("Migrando datos...");
+  const movements = state.movements.map(toDbMovement);
+  const payments = state.payments.map(toDbPayment);
+  const results = [];
+
+  if (payments.length) {
+    results.push(await supabaseClient.from("payments").upsert(payments, { onConflict: "id" }));
+  }
+  if (movements.length) {
+    results.push(await supabaseClient.from("movements").upsert(movements, { onConflict: "id" }));
+  }
+  results.push(await supabaseClient.from("app_settings").upsert({
+    household_id: sessionState.householdId,
+    categories: getCategories(),
+    payment_types: getPaymentTypes(),
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "household_id" }));
+
+  if (results.some((result) => result.error)) {
+    setSyncStatus("Error al migrar", "bad");
+    alert("No se pudieron subir todos los datos locales a Supabase.");
+    return;
+  }
+  setSyncStatus("Sincronizado", "ok");
+}
+
+function setSyncStatus(message, tone = "") {
+  if (!els.syncStatus) return;
+  els.syncStatus.textContent = message;
+  els.syncStatus.classList.toggle("ok", tone === "ok");
+  els.syncStatus.classList.toggle("bad", tone === "bad");
+}
+
+function getStoredLocalState() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (!saved) return null;
+  try {
+    const parsed = JSON.parse(saved);
+    return {
+      movements: normalizeMovements(parsed.movements || []),
+      payments: normalizePayments(parsed.payments || []),
+      settings: normalizeSettings(parsed.settings),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function hasUsefulLocalData(data) {
+  if (!data) return false;
+  return Boolean((data.movements || []).length || (data.payments || []).length);
 }
 
 async function renameRemoteCategory(current, next) {
@@ -1110,6 +1211,59 @@ function fromDbSettings(row) {
     categories: row?.categories || defaultCategories,
     paymentTypes: row?.payment_types || defaultPaymentTypes,
   };
+}
+
+function exportBackup() {
+  const backup = {
+    exportedAt: new Date().toISOString(),
+    source: "mi-dinero",
+    movements: state.movements,
+    payments: state.payments,
+    settings: state.settings,
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `mi-dinero-respaldo-${today()}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function importBackup(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const backup = JSON.parse(String(reader.result || "{}"));
+      const movements = normalizeMovements(backup.movements || []);
+      const payments = normalizePayments(backup.payments || []);
+      if (!movements.length && !payments.length) {
+        alert("El archivo no tiene movimientos ni obligaciones para importar.");
+        return;
+      }
+      if (!confirm("Importar este respaldo y subirlo a Supabase?")) return;
+      state.movements = mergeById(state.movements, movements);
+      state.payments = mergeById(state.payments, payments);
+      state.settings = normalizeSettings(backup.settings || state.settings);
+      await uploadCurrentStateToRemote();
+      persist();
+      renderSettings();
+      render();
+    } catch {
+      alert("No se pudo leer el archivo de respaldo.");
+    } finally {
+      event.target.value = "";
+    }
+  };
+  reader.readAsText(file);
+}
+
+function mergeById(current, incoming) {
+  const merged = new Map(current.map((item) => [item.id, item]));
+  for (const item of incoming) merged.set(item.id, item);
+  return [...merged.values()];
 }
 
 function loadState() {

@@ -54,6 +54,7 @@
 
         <div class="header-actions">
           <span class="session-pill" id="sessionLabel">Sin sesion</span>
+          <span class="session-pill sync-pill" id="syncStatus">Sincronizando</span>
           <button class="ghost" id="logoutButton" type="button">Salir</button>
           <button class="ghost danger" id="resetData" type="button">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -390,6 +391,17 @@
                 <button class="secondary" type="submit">Agregar</button>
               </form>
               <div class="settings-list" id="typeList"></div>
+            </article>
+
+            <article class="settings-box">
+              <h3>Respaldo</h3>
+              <div class="backup-actions">
+                <button class="quiet" id="exportData" type="button">Exportar datos</button>
+                <label class="quiet import-button">
+                  Importar datos
+                  <input id="importData" type="file" accept="application/json" />
+                </label>
+              </div>
             </article>
           </div>
         </section>

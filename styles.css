@@ -152,6 +152,21 @@ svg {
   font-weight: 850;
 }
 
+.sync-pill {
+  background: #e8f0f7;
+  color: var(--blue);
+}
+
+.sync-pill.ok {
+  background: #e7f6ee;
+  color: var(--green);
+}
+
+.sync-pill.bad {
+  background: #fdeaea;
+  color: var(--red);
+}
+
 .brand {
   display: flex;
   gap: 12px;
@@ -850,6 +865,23 @@ th {
   min-width: 0;
   overflow-wrap: anywhere;
   font-weight: 800;
+}
+
+.backup-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.import-button {
+  display: inline-grid;
+  min-height: 44px;
+  place-items: center;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.import-button input {
+  display: none;
 }
 
 .summary-row span {
