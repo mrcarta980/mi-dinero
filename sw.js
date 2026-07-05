@@ -1,12 +1,12 @@
 const CACHE_NAME = "mi-dinero-v1";
 const APP_SHELL = [
-  "/",
-  "/index.html",
-  "/styles.css",
-  "/app.js",
-  "/manifest.webmanifest",
-  "/icon.svg",
-  "/offline.html"
+  "./",
+  "./index.html",
+  "./styles.css",
+  "./app.js",
+  "./manifest.webmanifest",
+  "./icon.svg",
+  "./offline.html"
 ];
 
 self.addEventListener("install", (event) => {
@@ -34,6 +34,6 @@ self.addEventListener("fetch", (event) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;
       })
-      .catch(() => caches.match(event.request).then((cached) => cached || caches.match("/offline.html")))
+      .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./offline.html")))
   );
 });

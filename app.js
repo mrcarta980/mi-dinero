@@ -94,7 +94,7 @@ function registerServiceWorker() {
   if (!["https:", "http:"].includes(window.location.protocol)) return;
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {
+    navigator.serviceWorker.register("sw.js").catch(() => {
       // La app sigue funcionando aunque el modo instalable no se registre.
     });
   });

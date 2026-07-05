@@ -2,15 +2,15 @@
   "name": "Mi Dinero",
   "short_name": "Mi Dinero",
   "description": "Control compartido de ingresos, salidas, obligaciones y saldos por corte.",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f4f6f8",
   "theme_color": "#151c22",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
